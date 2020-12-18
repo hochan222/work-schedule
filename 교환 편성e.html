@@ -1,0 +1,648 @@
+﻿<html> <!-- 무엇때문에 근무 편성이 실패하는 지 로그로 뜨게 하자 -->
+	<head>
+		<title> 교환 편성 </title>
+	</head>
+	<body bgcolor='black' style='margin: 0px'>
+		<div style='background: #bba; height:26px'>
+			<input type='text' style='width: 20%; margin:1px' placeholder='인원 수' maxLength='2'/>
+			<label>대기 중</label>
+			<input type='button' style='position: absolute;' value='표 그리기' onclick='clickButton(this)'/>
+			<input type='button' style='position: absolute;' value='근무 추가' onclick='clickButton(this)'/>
+		</div>
+		<canvas id='cvs' width='500px' height='500px' style='background: #fff' onclick='blockDate()'></canvas>
+		<script>
+			var cvs, ctx, div, inputs, label;
+			var vars = {};
+				// userNumber : 유저 수
+				// weekArr : 요일 당 배열
+				// userArr : 유저 당 배열
+				// tileWidth : 타일 넓이
+				// tileHeight : 타일 높이
+				// mouseX : 마우스 X 좌표
+				// mouseY : 마우스 Y 좌표
+				// workTimeArr : 일 시간표 배열
+
+			window.onmousedown = function() {
+				vars.mouseX = event.clientX;
+				vars.mouseY = event.clientY;
+			}
+
+			window.onresize = function() {
+				if (cvs == null) return;
+
+				inputs[1].style.left = window.innerWidth - inputs[1].clientWidth - inputs[2].clientWidth - 6;
+				inputs[2].style.left = window.innerWidth - inputs[2].clientWidth - 3;
+
+				cvs.width = window.innerWidth;
+				cvs.height = window.innerHeight - div.clientHeight;
+
+				if (vars.userNumber != undefined) {
+					vars.tileWidth = cvs.width / (vars.userNumber + 1);
+					vars.tileHeight = cvs.height / (vars.userNumber + 1);
+					drawTable();
+				}
+			}
+
+			window.onload = function() {
+				window.oncontextmenu = window.ondragstart = window.onselectstart = function() { return false; };
+				document.body.style.overflow = 'hidden';
+
+				cvs = document.getElementById('cvs');
+				ctx = cvs.getContext('2d');
+				div = document.getElementsByTagName('div')[0];
+				inputs = document.getElementsByTagName('input');
+				label = document.getElementsByTagName('label')[0];
+
+				window.onresize();
+			}
+
+			function clickButton(obj) {
+					if (obj == inputs[1]) {
+						vars.userNumber = Number(inputs[0].value);
+
+					if (isNaN(vars.userNumber)) return alert('숫자만 입력해주세요.');
+					if (15 < vars.userNumber || vars.userNumber < 7) return alert('7 ~ 15 사이로 입력해주세요.');
+					if (vars.userNumber >= 12) alert('12명 이상부터는 계산이 급격히 느려질 수 있습니다.');
+
+					vars.endTableSet = undefined;
+					setTable();
+					drawTable();
+					label.textContent = '그리기 완료';
+				} else if (obj == inputs[2]) {
+					if (vars.endTableSet == undefined)
+						vars.masterBackup = [
+								copyArr(vars.weekArr),
+								copyArr(vars.userArr)
+							];
+					vars.checkManyTimes = 0;
+					vars.testCounter = 0;
+					vars.testTime = 0;
+					inputDataTable();
+				}
+			}
+
+			function setTable() {
+				var i, j, len;
+
+				vars.weekArr = [];
+				vars.userArr = [];
+
+				len = vars.userNumber;
+				for (i = 0; i < len; i++) {
+					vars.weekArr.push([]);
+					vars.userArr.push([]);
+					for (j = 0; j < len; j++)
+						vars.weekArr[i][j] = vars.userArr[i][j] = 0;
+				}
+			}
+
+			function drawTable() {
+				ctx.clearRect(0, 0, cvs.width, cvs.height);
+
+				var i, j, len = vars.userNumber + 1;
+
+				vars.tileWidth = cvs.width / len;
+				vars.tileHeight = cvs.height / len;
+
+				// 테이블 칸
+				for (i = 0; i < len; i++) {
+					for (j = 0; j < len; j++) {
+						ctx.beginPath();
+						ctx.rect(vars.tileWidth * i, vars.tileHeight * j, vars.tileWidth, vars.tileHeight);
+						ctx.stroke();
+						ctx.closePath();
+					}
+				}
+
+				// 구분자
+				ctx.beginPath();
+				ctx.fillStyle = '#444';
+				ctx.rect(2, 2, vars.tileWidth - 4, vars.tileHeight - 4);
+				ctx.fill();
+				ctx.closePath();
+
+				// 요일
+				var weekNameArr = ['월', '화', '수', '목', '금'];
+
+				ctx.font = (cvs.width / (3 * len)) + 'px sans-serif';
+				ctx.textBaseline = 'middle';
+				ctx.textAlign = 'center';
+				for (i = 1; i < len; i++) {
+					ctx.beginPath();
+					ctx.fillStyle = '#888';
+					ctx.rect(vars.tileWidth * i + 2, 2, vars.tileWidth - 4, vars.tileHeight - 4);
+					ctx.fill();
+					ctx.fillStyle = '#fff';
+					ctx.fillText(weekNameArr[(i - 1)%5], vars.tileWidth * (i + 0.5), vars.tileHeight/2);
+					ctx.closePath();
+				}
+
+				// 인원
+				for (i = 1; i < len; i++) {
+					ctx.beginPath();
+					ctx.fillStyle = '#888';
+					ctx.rect(2, vars.tileHeight * i + 2, vars.tileWidth - 4, vars.tileHeight - 4);
+					ctx.fill();
+					ctx.fillStyle = '#fff';
+					ctx.fillText(String.fromCharCode(64 + i), vars.tileWidth/2, vars.tileHeight * (i + 0.5));
+					ctx.closePath();
+				}
+
+				// 값
+				var dateValue;
+				for (i = 1; i <len; i++) {
+					for (j = 1; j < len; j++) {
+						dateValue = vars.weekArr[i - 1][j - 1];
+						if (dateValue == 0) continue;
+
+						ctx.beginPath();
+						if (dateValue != -1) {
+							ctx.fillStyle = '#000';
+							if (Array.isArray(dateValue)) dateValue = dateValue.toString();
+							ctx.fillText(dateValue, vars.tileWidth * (i + 0.5), vars.tileHeight * (j + 0.5));
+						} else {
+							ctx.fillStyle = '#f33';
+							ctx.rect(vars.tileWidth * i + 2, vars.tileHeight * j + 2, vars.tileWidth - 4, vars.tileHeight - 4);
+							ctx.fill();
+						}
+						ctx.closePath();
+					}
+				}
+			}
+
+			function blockDate() {
+				if (vars.userNumber == undefined) return;
+
+				var x, y;
+				x = Math.floor(vars.mouseX / vars.tileWidth) - 1;
+				y = Math.floor((vars.mouseY - div.clientHeight) / vars.tileHeight) - 1;
+
+				if (0 <= x && 0 <= y) {
+					vars.weekArr[x][y] = vars.weekArr[x][y] == -1 ? 0 : -1;
+					vars.userArr[y][x] = vars.userArr[y][x] == -1 ? 0 : -1;
+					drawTable();
+				}
+			}
+
+			function inputDataTable() {
+				// 추가 실패
+				if (vars.checkManyTimes > 4) {
+					vars.testTime = Math.round(vars.testTime * 100)/100;
+					label.textContent = '근무 추가 실패, 재시도 해주세요. (' + addComma(vars.testCounter) + '회 계산, ' + vars.testTime + '초 소요)';
+					return alert('오류 : 너무 긴 탐색시간 (' + addComma(vars.testCounter) + '회 검사, ' + vars.testTime + '초 소요)');
+				}
+
+				var userNumber = vars.userNumber, breakTime = 0; // 검사시간 기록
+				if (userNumber == undefined) return;
+				
+				breakTime = (new Date()).getTime();
+
+				var temp_weekArr, temp_userArr; // 메모리 부하를 줄이기 위한 임시 값
+				temp_weekArr = copyArr(vars.masterBackup[0]);
+				temp_userArr = copyArr(vars.masterBackup[1]);
+
+				var i, j, maxHoliday = userNumber - 7,
+					availMaxHoliday = maxHoliday * userNumber,
+					workTimeArr = [1, 2, 3, 4, 5, 6, 7],	// 근무 뿌려주기 위한 배열
+					limitWaitTime = [10, 15, 20, 30, 40, 50, 65, 80, 95][vars.userNumber - 7], // 최대 계산 시간 설정
+					checkMaxTimes = [1000, 2500, 4000, 7000, 10000, 13000, 17500, 22000, 26500][vars.userNumber - 7]; // 최대 계산 횟수 설정
+
+				// 현재 남은 공백 수 확인
+				// 현재 배열에 들어가 있는 공백 수가 availMaxHoliday 보다 많을 경우
+				// 누군가는 하루에 두 번 이상 근무를 뛰어야 한다.
+				var checkHolidayArr;	// 요일안에 공백이 몇 개인지 확인용
+				for (i = 0; i < userNumber; i++) {
+					checkHolidayArr = temp_weekArr.slice(i, i+1)[0].slice().sort();
+					availMaxHoliday -= checkHolidayArr.lastIndexOf(-1) + 1;
+				}
+
+
+				// 허용 가능한 공백이 남았을 경우, 랜덤으로 최대 maxHoliday개가 되도록 뿌려준다.
+				var count = [0, 0],										// 여러 번 검사해도 안 될경우 배열들 초기화하고 다시 검사
+					backupArr,											// 초기화 용 백업 배열
+					randomIndexArr = getRandomIndexArr(),				// 랜덤 요일
+					randomIndexArr_giveBlock,							// 랜덤 유저
+					checkWeekArr;										// 고른 유저의 요일에 공백이 maxHoliday개 미만인지 확인
+
+				backupArr = [
+						copyArr(temp_weekArr),
+						copyArr(temp_userArr),
+						availMaxHoliday
+					];
+
+				/* 빈 칸 채우기 */
+				// 공백을 직접 지정할 경우 골고루 분배되게 하기 (지금은 한 두명이 공백 많은 사람 일을 거의 다 부담하는 형식)
+				label.textContent = '쉬는 날 추가 중...';
+				while (availMaxHoliday > 0) {
+					temp_weekArr = copyArr(backupArr[0]);
+					temp_userArr = copyArr(backupArr[1]);
+					availMaxHoliday = backupArr[2];
+
+					// 랜덤으로 유저 한명 한명 훑으면서 공백 넣기
+					randomIndexArr = getRandomIndexArr();
+					for (i = 0; i < userNumber && availMaxHoliday > 0; i++) {
+						checkHolidayArr = temp_userArr.slice(randomIndexArr[i], randomIndexArr[i] + 1)[0].slice().sort();
+
+						count[1] = 0;
+						while (availMaxHoliday > 0 && checkHolidayArr.lastIndexOf(-1) + 1 < maxHoliday) {
+							randomIndexArr_giveBlock = getRandomIndexArr();
+
+							// 랜덤으로 한칸 한칸 훑으면서 공백 넣기
+							for (j = 0; j < userNumber && availMaxHoliday > 0; j++) {
+								vars.testCounter++;
+
+								// 고른 블록이 공백이 아닐 경우
+								if (checkHolidayArr[randomIndexArr_giveBlock[j]] != -1) {
+									checkWeekArr = temp_weekArr.slice(randomIndexArr_giveBlock[j], randomIndexArr_giveBlock[j] + 1)[0].slice().sort();
+
+									checkHolidayArr = temp_userArr.slice(randomIndexArr[i], randomIndexArr[i] + 1)[0].slice().sort();
+
+									// 그 블록의 요일안의 공백이 maxHoliday개 미만일 경우 공백 추가
+									if (checkWeekArr.lastIndexOf(-1) + 1 < maxHoliday && checkHolidayArr.lastIndexOf(-1) + 1 < maxHoliday) {
+										temp_weekArr[randomIndexArr_giveBlock[j]][randomIndexArr[i]] = -1;
+										temp_userArr[randomIndexArr[i]][randomIndexArr_giveBlock[j]] = -1;
+										availMaxHoliday--;
+									}
+								}
+							}
+
+							// 여러 번 검사해도 답이 안나오면 배열 초기화 후 재검사
+							if (++count[1] > checkMaxTimes) {
+								i = userNumber;
+								break;
+							}
+						}
+					}
+
+					if (++count[0] > checkMaxTimes)
+						break;
+
+					// 가로 세로 검사했을 때 maxHoliday칸 미만 인 곳이 있다면 다시 채우기
+					// !-- 왜 다시 채워야 할지 의문이라서 주석처리 해둠 --!
+					// !-- 어떤 사람의 공백이 기본 공백 개수보다 높다면 다른 사람들은 어쩔 수 없이 maxHoliday보다 적을 수 밖에 없다 --!
+					// if (checkLessEmpty() == false) availMaxHoilday = 1;
+				}
+				
+				if (count[0] > checkMaxTimes) return inputDataTable();
+				label.textContent = '쉬는 날 추가 완료';
+
+				
+				/* 근무 채우기 */
+				label.textContent = '근무 추가 중...';
+
+				var temp,			// 근무를 잠시 저장하기 위해 생성
+					tempR,			// 랜덤 값을 저장하기 위해 생성
+					//overCheckTable = 0, // 재검사 횟수 변수
+								//7	  8   9   10  11  12  13  14  15
+					//recheckMax = [32, 16, 16, 8, 8, 4, 4, 2, 2]; // 유저 인원에 따라 반복하는 횟수가 달라짐
+					whereUndefined, // 근무 다 넣고 undefined 나온 위치 저장
+					userWorkTimes, // 유저들의 최소, 최대 근무 횟수
+					k, lenk, kArr; // 임시용
+
+				backupArr = [	// 쉬는 날 추가된 배열
+						copyArr(temp_weekArr),
+						copyArr(temp_userArr)
+					];
+
+				// 원래 재귀함수로 재검사 했는데, while문으로 바꾸니까 느려짐 -> 그것 때문이 아니라 랜덤으로 검사하는거라 어쩔땐 빠르고 어쩔땐 느린거였음
+				// 근무가 들어가지 않은 칸이 남아있을 경우 채워주는 while문 안에서 자꾸 배열을 초기화 시켜서 근무가 들어가지가 않은거였음
+				count = [0, 0];
+				// 잘못 계산되면 컴퓨터가 다시 계산하지 말고 유저가 버튼을 눌러서 다시 계산하게 하는건 어떨까
+				// 최적화로 인해 계산시간이 적으면 1/10 많으면 1/100 만큼 단축되서 컴퓨터로 더 계산해도 될 것 같음 (적은 횟수 만) X => (이거 말고 함수 전체 도는 횟수 늘려줘도 될 듯)
+				//while (overCheckTable++ < recheckMax[userNumber - 7]) {
+					
+					// 근무표에 근무가 덜 들어갔거나 요일(유저) 라인에 같은 숫자가 있을 경우 테이블에 빠짐 없이 넣어준다.
+					vars.testTime += ((new Date()).getTime() - breakTime) / 1000;
+					breakTime = (new Date()).getTime();
+					count[0] = 0;
+					while ((emptyWorkTable(temp_userArr) || sameNumberToLine(temp_weekArr)) && ++count[0] < checkMaxTimes) {	
+
+						// 시간초 검사해서 일정시간 이상 지났으면 파괴
+						if (((new Date()).getTime() - breakTime) / 1000 >= limitWaitTime) {
+							count[0] = checkMaxTimes;
+							break;
+						}
+
+						temp_weekArr = copyArr(backupArr[0]);
+						temp_userArr = copyArr(backupArr[1]);
+	
+						// 랜덤으로 유저를 검색한다.
+						randomIndexArr = getRandomIndexArr();
+						for (i = 0; i < userNumber; i++) {
+
+							// 근무가 들어가지 않은 칸이 남아있을 경우
+							count[1] = 0;
+							while(temp_userArr[randomIndexArr[i]].indexOf(0) != -1) {
+								// 근무가 들어가지 않은 칸만 넣으면 되지 왜 굳이 for문으로 다 검사해서 넣었을까
+
+								// 시간초 검사해서 일정시간 이상 지났으면 파괴
+								if (((new Date()).getTime() - breakTime) / 1000 >= limitWaitTime) {
+									i = userNumber;
+									//count[1] = checkMaxTimes;
+									break;
+								}
+
+								// 유저의 근무 칸 하나하나 훑으며 검사한다. X  => 근무가 들어가지 않은 칸만 검사한다.
+								j = temp_userArr[randomIndexArr[i]].indexOf(0);
+								vars.testCounter++;
+								// 이 칸이 공백칸이면 패스한다. X => 근무가 들어가지 않은 칸만 검사하므로 공백칸이 나올 수가 없다.
+								// if (temp_userArr[randomIndexArr[i]][j] == -1 || temp_weekArr[j][randomIndexArr[i]] == -1) continue;
+
+								// 이 유저의 근무 리스트 중 랜덤으로 아무거나 뽑는다.
+								// workTimeArr.length == 7
+								temp = workTimeArr[Math.floor(Math.random() * 7)];
+
+								// 근무를 넣을 수 있는 환경을 찾기 보단, 근무를 넣을 수 없을 경우 부숴버리는 건 어떨까 X 계산 횟수가 어마하게 늘어날 듯
+								// 유저 라인에 넣을 수 있는 근무들과 요일에 넣을 수 있는 근무들 중 같은 근무 시간 대를 찾아서 넣는 것도 괜찮을 듯, 없으면 부수고
+								temp = workTimeisFull(temp_weekArr[j]);
+								tempR = workTimeisFull(temp_userArr[randomIndexArr[i]]);
+
+								for (kArr = [], k = 0, lenk = tempR.length; k < lenk; k++)
+									if (temp.indexOf(tempR[k]) != -1)
+										kArr.push(tempR[k]);
+								
+								if (kArr.length != 0)
+									temp = kArr[Math.floor(Math.random() * kArr.length)];
+								else 
+									temp = undefined;
+
+								temp_weekArr[j][randomIndexArr[i]] = temp;
+								temp_userArr[randomIndexArr[i]][j] = temp;
+
+								// 그 요일에 똑같은 근무가 없을 경우 근무를 추가한다.		유저에서는 중복 될 수도 있지만 중복을 최소화 한다.
+								/*if (temp_weekArr[j].indexOf(temp) == -1) {
+									// 유저 근무표에서 중복되는 근무 시간이 골라졌는데, 이미 모든 시간이 넣어진 상태인 경우는 중복을 허용한다. X
+									// workTimeisFull 검사할 때 2개 이상의 근무가 들어가지 않은 칸에 넣을 수 있는 숫자가 없으면 헛돈다 (카운트 변수 돌려서 요일 근무 다 들어갔는지 확인 후, 공백으로 넣던가 하기)
+									// 결론 => 요일에 이미 근무가 다 들어갔으면 공백으로 만든다.
+									if (temp_userArr[randomIndexArr[i]].indexOf(temp) != -1) {
+										tempR = workTimeisFull(temp_weekArr[j]);
+										// 유저 배열에서 중복이 생기는 이유가 이 아래 코드 때문인 듯
+										if (tempR.length == 0)
+											// 이건 딱히 작동 안하는 거 같은데
+											//temp = undefined; // undefined를 넣은 이유는 아래 뒤처리 작업에서 처리하려고 넣어봄 (테스트는 안해 봄)
+											temp = -1;
+										else {
+											//temp = tempR[0]; // 이거 때문에 유저 배열에 중복이 많이 생김
+											// 그래서 그 요일에 없는 숫자들 중에 그 유저가 가지고 있지 않은 숫자가 있을 경우 그 숫자를 넣고 아니면 아무거나 넣게 함 (아무거나 넣게 하기 보단 부숴서 재검사하게 해볼까)
+											checkK = false;
+											for (k = 0, lenk = tempR.length;k < lenk; k++)
+												if (temp_userArr[randomIndexArr[i]].indexOf(tempR[k]) == -1) {
+													temp = tempR[k];
+													checkK = true;
+												}
+
+											if (checkK)
+												temp = 0; //count[1] = checkMaxTimes;
+										}
+									}
+
+									temp_weekArr[j][randomIndexArr[i]] = temp;
+									temp_userArr[randomIndexArr[i]][j] = temp;
+								}*/
+
+								// 여러 번 검사해도 답이 안나오면 배열 초기화 후 재검사 (필수)
+								if (++count[1] > checkMaxTimes) {
+									count[1] = 0;
+									i = userNumber;
+									break;
+								}
+							}
+						}
+
+						// 뒷처리 작업 (한 요일에 근무 넣을 수 있는 칸이 7개 보다 적을 경우 멈춤..)
+						// 한 명의 공백 개수가 기본 공백 개수 초과만큼 일경우, 다른 곳에서 나온 undefined에 남은 근무를 넣는다.
+						for (i = 0; i < userNumber; i++)
+							if (temp_weekArr[i].indexOf(undefined) != -1) {
+								whereUndefined = temp_weekArr[i].indexOf(undefined);
+								temp = workTimeisFull(temp_weekArr[i]);
+
+								if (temp.length == 0) 
+									temp = [-1];
+
+								temp_userArr[whereUndefined][i] = temp[0];
+								temp_weekArr[i][whereUndefined] = temp[0];
+							}
+
+						// 요일의 공백이 (인원수 - 7)개 초과일 경우, 한 명 이상은 하루에 두 개 이상의 근무를 뛰어야 함 (위에 while문에 추가시켜야 할 것 같다)
+						for (i = 0; i < userNumber; i++) {
+							checkHolidayArr = temp_weekArr.slice(i, i + 1)[0].slice().sort();
+
+							// 초과일 경우
+							if (checkHolidayArr.lastIndexOf(-1) + 1 > userNumber - 7) {
+
+								// 근무를 다 채울 때까지 반복
+								while(workTimeisFull(temp_weekArr[i]).length != 0) {
+									temp = workTimeisFull(temp_weekArr[i]);
+									
+									do {
+										tempR = Math.floor(Math.random() * userNumber);
+									} while (temp_weekArr[i][tempR] == -1);
+
+									if (!Array.isArray(temp_weekArr[i][tempR])) {
+										temp_weekArr[i][tempR] = [temp_weekArr[i][tempR]];
+										temp_userArr[tempR][i] = [temp_userArr[tempR][i]];
+									}
+									temp_weekArr[i][tempR].push(temp[0]);
+									temp_userArr[tempR][i].push(temp[0]);
+								}
+							}
+						}
+
+						// 한 명이 비정상적으로 근무를 많이 뛰면 부수고 다시 짜기
+						// getUserWorkTimes(temp_userArr)
+						userWorkTimes = [userNumber * userNumber, 0];
+						for (i = 0; i < userNumber; i++) {
+							temp = getUserWorkTimes(temp_userArr[i]);
+							if (temp < userWorkTimes[0]) userWorkTimes[0] = temp;
+							else if (userWorkTimes[1] < temp) userWorkTimes[1] = temp;
+						}
+						// 많이 뛰는 사람과 적게 뛰는 사람 차이가 3 이상 나면 부수기
+						if (userWorkTimes[1] - userWorkTimes[0] >= 3) {
+							temp_weekArr = copyArr(backupArr[0]);
+							temp_userArr = copyArr(backupArr[1]);
+						}
+
+						// 나중에 할 일
+						// 다른 사람보다 휴일이 많은 사람에게 근무 몰아주게 하자
+						// 6, 7 분배도 계산하기
+
+					}
+
+					vars.testTime += ((new Date()).getTime() - breakTime) / 1000;
+
+					/*if (count[0] < checkMaxTimes)
+						break;
+				}*/
+
+				// 추가 실패 --> 재검사
+				if (count[0] >= checkMaxTimes) {
+					vars.checkManyTimes++;
+					/*if (vars.checkManyTimes > 1) {
+						vars.weekArr = copyArr(temp_weekArr);
+						vars.userArr = copyArr(temp_userArr);
+
+						drawTable();
+					} else*/
+						return inputDataTable();
+				}
+
+				breakTime = (new Date()).getTime();
+
+				vars.weekArr = copyArr(temp_weekArr);
+				vars.userArr = copyArr(temp_userArr);
+
+				drawTable();
+				vars.testTime += ((new Date()).getTime() - breakTime) / 1000;
+				vars.testTime = Math.round(vars.testTime * 100)/100;
+				label.textContent = '근무 추가 완료 (' + addComma(vars.testCounter) + '회 계산, ' + vars.testTime + '초 소요)';
+				vars.endTableSet = true;
+			}
+
+			function checkLessEmpty() {
+				var i = 0, len = vars.userArr.length, checkHolidayArr, maxHoliday = vars.userNumber - 7;
+
+				for (;i < len; i++) {
+					checkHolidayArr = vars.userArr.slice(i, i + 1)[0].slice().sort();
+
+					if (checkHolidayArr.lastIndexOf(-1) + 1 < maxHoliday) return false;
+				}
+
+				for (i = 0;i < len; i++) {
+					checkHolidayArr = vars.weekArr.slice(i, i + 1)[0].slice().sort();
+
+					if (checkHolidayArr.lastIndexOf(-1) + 1 < maxHoliday) return false;
+				}
+
+				return true;
+			}
+
+			function emptyWorkTable(userArr) {
+				var i;
+
+				for (i = 0; i < vars.userNumber; i++)
+					if (userArr[i].indexOf(0) != -1 || userArr[i].indexOf(undefined) != -1)
+						return true;
+				return false;
+			}
+
+			function sameNumberToLine(weekArr) {
+				var i, j, k, userNumber = vars.userNumber, cweekArr = weekArr;
+
+				for (i = 0; i < userNumber; i++)
+					for (j = 0; j < userNumber; j++)
+						/*for (k = j + 1; k < userNumber; k++)
+							if (cweekArr[i][j] != -1 && cweekArr[i][j] == cweekArr[i][k])
+								return true;*/
+						// for문 하나 없애서 최적화 시켰음 (indexOf의 시간 복잡도가 O(n) 일까?)
+						if (cweekArr[i][j] != -1 && cweekArr[i].indexOf(cweekArr[i][j]) != cweekArr[i].lastIndexOf(cweekArr[i][j]))
+							return true;
+
+				return false;
+			}
+
+			function workTimeisFull(workArr) {
+				var i, workTime = [1, 2, 3, 4, 5, 6, 7], cworkArr = workArr, len;
+
+				for (i = 0; i < vars.userNumber; i++)
+					if (Array.isArray(cworkArr[i])) {
+						for(j = 0, len = cworkArr[i].length; j < len; j++){
+							if (workTime.indexOf(cworkArr[i][j]) != -1)
+								workTime.splice(workTime.indexOf(cworkArr[i][j]), 1);
+						}
+					} else if (workTime.indexOf(cworkArr[i]) != -1)
+						workTime.splice(workTime.indexOf(cworkArr[i]), 1);
+
+				return workTime;
+			}
+
+			function getRandomIndexArr() {
+				var userNumber = vars.userNumber;
+
+				if (userNumber == undefined) return null;
+
+				var randomIndexArr = [], randomValue;
+				while(randomIndexArr.length < userNumber) {
+					randomValue = Math.floor(Math.random() * userNumber);
+
+					if (randomIndexArr.indexOf(randomValue) == -1) randomIndexArr.push(randomValue);
+				}
+
+				return randomIndexArr;
+			}
+
+			function getUserWorkTimes(userArr) {
+				var i = 0, len = userArr.length, num = 0;
+
+				for (;i < len; i++) {
+					if (Array.isArray(userArr[i]))
+						num += getUserWorkTimes(userArr[i]);
+					else if (userArr[i] != -1 && userArr[i] != undefined)
+						num++;
+				}
+
+				return num;
+			}
+
+			// 어마어마한 연산량
+			function copyArr(copiedArr) {
+				var returnArr = [], i, len = copiedArr.length;
+				
+				for (i = 0; i < len; i++) 
+					returnArr[i] = copiedArr[i].slice();
+				
+				return returnArr;
+			}
+
+			/*
+			성능이 안 좋다
+			function copyArr(copiedArr) {
+				if (copiedArr === null || typeof(copiedArr) !== 'object')
+					return copiedArr;
+
+				var copy = copiedArr.constructor(), attr;
+
+				for (attr in copiedArr) {
+					if (copiedArr.hasOwnProperty(attr)) {
+						copy[attr] = this.copyArr(copiedArr[attr]);
+					}
+				}
+				return copy;
+			}
+			*/
+
+			/*
+			얉은 복사
+			function copyArr(source) {
+				var index = -1,
+					length = source.length
+					array = [];
+
+				array || (array = Array(length));
+				while (++index < length)
+					if (Array.isArray(source[index]))
+						array[index] = copyArr(source[index]);
+					else
+						array[index] = source[index];
+				return array;
+			}
+			*/
+
+			/*
+			얉은 복사
+			function copyArr(copiedArr) {
+				return eval(copiedArr);
+			}
+			*/
+
+			function addComma(number) {
+				var commaArr = [], commaString = number + '', i, len;
+
+				len = (number + '').length;
+				for (i = len; i > 0; i -= 3)
+					commaArr.unshift(commaString.substring(i - 3, i));
+
+				return commaArr.join(',');
+			}
+		</script>
+	</body>
+</html>
